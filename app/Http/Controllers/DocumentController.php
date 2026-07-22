@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Document;
 use Illuminate\Http\Request;
+use App\Jobs\ProcessDocument;
 
 class DocumentController extends Controller
 {
@@ -17,22 +18,24 @@ class DocumentController extends Controller
     }
 
     public function store(Request $request)
-    {
-        $request->validate([
-            'file' => 'required|file|mimes:pdf,txt|max:10240',
-        ]);
+{
+    $request->validate([
+        'file' => 'required|file|mimes:pdf,txt|max:10240',
+    ]);
 
-        $path = $request->file('file')->store('documents');
+    $path = $request->file('file')->store('documents');
 
-        Document::create([
-            'user_id' => auth()->id(),
-            'title' => $request->file('file')->getClientOriginalName(),
-            'file_path' => $path,
-            'status' => 'pending',
-        ]);
+    $document = Document::create([
+        'user_id' => auth()->id(),
+        'title' => $request->file('file')->getClientOriginalName(),
+        'file_path' => $path,
+        'status' => 'pending',
+    ]);
 
-        return back()->with('status', 'Document uploaded successfully.');
-    }
+    ProcessDocument::dispatch($document);
+
+    return back()->with('status', 'Document uploaded — processing in background.');
+}
 
     public function destroy(Document $document)
     {
