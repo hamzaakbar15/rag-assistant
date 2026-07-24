@@ -9,6 +9,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use App\Models\Document;
 
 class ProcessDocument implements ShouldQueue
 {
@@ -17,7 +18,7 @@ class ProcessDocument implements ShouldQueue
     /**
      * Create a new job instance.
      */
-    public function __construct()
+    public function __construct(public Document $document)
     {
         //
     }
@@ -30,7 +31,11 @@ class ProcessDocument implements ShouldQueue
         $this->document->update(['status' => 'processing']);
 
         try {
-            $text = $this->extractText();
+            $text = trim($this->extractText());
+
+            if ($text === '') {
+                throw new \RuntimeException('No text could be extracted from this document.');
+            }
 
             $embedding = Str::of($text)->toEmbeddings();
 
