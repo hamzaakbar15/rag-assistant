@@ -18,7 +18,10 @@ class ChatController extends Controller
             'message' => 'required|string|max:2000',
         ]);
 
-        $response = (new SupportAssistant)->prompt($request->message);
+        $response = (new SupportAssistant)->prompt(
+            $request->message,
+            timeout: 180,
+        );
 
         return response()->json([
             'answer' => (string) $response,
