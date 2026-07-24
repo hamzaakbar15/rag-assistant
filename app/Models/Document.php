@@ -15,6 +15,7 @@ class Document extends Model
         'title',
         'file_path',
         'content',
+        'embedding',
         'status',
     ];
 
