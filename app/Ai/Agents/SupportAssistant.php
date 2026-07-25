@@ -9,6 +9,7 @@ use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Promptable;
 use App\Models\Document;
+use App\Models\DocumentChunk;
 use Laravel\Ai\Tools\SimilaritySearch;
 use Stringable;
 
@@ -48,7 +49,7 @@ class SupportAssistant implements Agent, Conversational, HasTools
     {
         return [
             SimilaritySearch::usingModel(
-                model: Document::class,
+                model: DocumentChunk::class,
                 column: 'embedding',
                 minSimilarity: 0.1,
             )->withDescription('Search the uploaded knowledge base documents for relevant information.'),
