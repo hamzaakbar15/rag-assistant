@@ -1,58 +1,134 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# RAG Assistant
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A support assistant web app where an admin uploads a company's own documents (FAQs, policies, manuals, resumes, etc.), and any visitor — no login required — can ask natural-language questions and get answers grounded in that content, instead of a generic AI that might hallucinate wrong information.
 
-## About Laravel
+Built as a learning/portfolio project to demonstrate practical **Retrieval-Augmented Generation (RAG)** skills for Laravel + AI roles.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## What it does
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+1. An admin logs into a Filament panel and uploads a document (PDF or text).
+2. The document is processed in the background: text is extracted, split into overlapping chunks, and each chunk is embedded using a local LLM.
+3. Any visitor can open the public chat page and ask a question — no account needed.
+4. The assistant performs a vector similarity search over the document chunks, and answers **only** from what it finds — or says it doesn't know, rather than making something up.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Tech stack
 
-## Learning Laravel
+| Layer | Choice |
+|---|---|
+| Framework | Laravel 13, PHP 8.4 |
+| Frontend | Livewire 4 (single-file components), Blade |
+| Admin panel | Filament v4 |
+| Auth | Laravel Breeze (scoped to admin/document management only) |
+| Database | PostgreSQL 16 + pgvector |
+| LLM runtime | Ollama (local, containerized) — `llama3.2:3b` for chat, `nomic-embed-text` for embeddings |
+| AI integration | `laravel/ai` (official Laravel AI SDK — agents, tools, embeddings) |
+| PDF parsing | `smalot/pdfparser` (pure PHP, no system dependency) |
+| Infra | Docker (Postgres + Ollama containers), app runs locally via `php artisan serve` |
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Architecture
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```
+Admin uploads PDF/txt (Filament)
+        │
+        ▼
+ProcessDocument job
+  ├─ Extract text (pdfparser / plain read)
+  ├─ Split into ~700-char chunks, 120-char overlap
+  └─ Embed each chunk (nomic-embed-text) → document_chunks table
+        │
+        ▼
+Visitor asks a question on /chat (public, no auth)
+        │
+        ▼
+Livewire chat component → SupportAssistant agent
+  ├─ SimilaritySearch tool: vector search over document_chunks
+  └─ llama3.2:3b answers using only retrieved chunks
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+### Why chunking instead of one embedding per document
 
-## Contributing
+Early version embedded each whole document as a single vector. This doesn't scale — long documents lose retrieval precision because one vector has to represent an entire document's meaning. Chunking splits text into ~700-character pieces with 120-character overlap (so no fact gets fully severed at a chunk boundary), and each chunk gets its own embedding. Retrieval then finds the *specific* passage relevant to a question, not just "this whole document seems related."
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Database schema (core tables)
 
-## Code of Conduct
+- **documents** — `id`, `user_id`, `title`, `file_path`, `content`, `status` (`pending` → `processing` → `ready`/`failed`)
+- **document_chunks** — `id`, `document_id`, `chunk_index`, `content`, `embedding` (`vector(768)`, HNSW cosine index)
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Getting started
 
-## Security Vulnerabilities
+### Prerequisites
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+- PHP 8.4+, Composer
+- Node 22 LTS
+- Docker Desktop
+
+### Setup
+
+```bash
+git clone https://github.com/hamzaakbar15/rag-assistant.git
+cd rag-assistant
+composer install
+npm install && npm run build
+cp .env.example .env
+php artisan key:generate
+```
+
+Start the Postgres (pgvector) and Ollama containers, then pull the required models:
+
+```bash
+docker exec -it rag_ollama ollama pull llama3.2:3b
+docker exec -it rag_ollama ollama pull nomic-embed-text
+```
+
+Run migrations and start the app:
+
+```bash
+php artisan migrate
+php artisan serve
+php artisan queue:work
+```
+
+Visit `/admin` to log in and upload documents, or `/chat` to ask questions as a visitor.
+
+## Running tests
+
+```bash
+php artisan migrate --env=testing
+php artisan test
+```
+
+Tests run against a dedicated `rag_assistant_test` Postgres database (SQLite isn't usable here — it has no `vector` column type or pgvector support). Ollama calls are faked via `Http::fake()` against real captured response shapes from `/api/embed` and `/api/chat`, so the suite runs fast and doesn't require Ollama to be running.
+
+> **Note:** the test suite is still being finalized — a few edge cases are being worked through.
+
+## What's deliberately simplified
+
+This is a learning project, not a production system. A few things are intentionally scoped down:
+
+- **No `is_admin` role** — every registered user has admin access; a real deployment would need a proper role/permission system.
+- **No per-user document scoping** — the knowledge base is shared and global by design (like a company support widget), not private per user.
+- **One embedding model, swappable** — Ollama is the default; `config/ai.php` supports swapping to Claude/OpenAI via a single `.env` change (not yet tested end-to-end).
+
+## Roadmap
+
+- [x] Document upload → background processing pipeline
+- [x] Public chat interface (Livewire)
+- [x] Document chunking with overlap
+- [x] Unit + feature test suite (in progress)
+- [ ] Backfill/reprocess script for documents uploaded before chunking existed
+- [ ] Provider swap test (Ollama → Claude/OpenAI)
+- [ ] Demo GIF
+
+## What I learned building this
+
+This project involved working through a number of real, non-obvious bugs — documented here because the debugging process was as valuable as the feature itself:
+
+- Vector dimension mismatches between embedding models (OpenAI's 1536 vs. `nomic-embed-text`'s 768) require dropping and recreating the column — you can't just change a config value.
+- Eloquent silently drops attributes that aren't in `$fillable` during mass assignment — no error, just missing data.
+- Livewire 4's single-file component convention (`⚡component.blade.php`) is structurally significant, not decorative — renaming or moving the file breaks it.
+- Livewire's DOM diffing can skip updating an input's visual value if the old/new HTML is structurally identical (no `value` attribute ever set) — `wire:key` forces a full node replacement instead of a patch, fixing it.
+- Faking HTTP calls in tests only helps if the faked response shape matches reality — worth capturing real API responses first (`curl`) rather than guessing.
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+This is a personal learning/portfolio project. Feel free to explore the code.
